@@ -1,0 +1,8 @@
+.env
+.lenv/
+cogs/__pycache__/*
+__pycache__/*
+chains.json
+guilds.json
+*.log
+/personal_gifs
