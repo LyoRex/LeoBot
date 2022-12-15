@@ -1,0 +1,280 @@
+import discord
+from discord.ext import commands, tasks
+import time
+import os
+import random
+import copy
+from typing import List, Tuple
+
+WIDTH = 4
+HEIGHT = 4
+
+LETTERS = list(map(chr, range(65, 91)))
+
+LETTER_EMOTE_PREFIX = ':regional_indicator_'
+
+# Directions are y, x (so -1, 1 means up 1, right 1)
+DIRECTIONS = [(-1,-1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+
+LETTER_SCALES = [43, 11, 23, 17, 57, 9, 13, 15, 38, 1, 6, 28, 15, 34, 37, 16, 1, 39, 29, 35, 19, 5, 7, 1, 9, 1]
+
+class WordFinder(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.guild_games = {}
+        self.guild_games.clear()
+        self.words = []
+        self.all_letters = []
+        self.text_path = self.bot.wordfinder_text_path
+
+        self.accept_timeout_length = 60
+        self.game_length = 60
+
+        self.read_words()
+        self.setup_letters()
+        self.game_loop.start()
+
+    def cog_unload(self):
+        self.game_loop.cancel()
+
+    def read_words(self):
+        with open(self.text_path, 'r') as f:
+            word_list = f.readlines()
+            self.words = [word.strip() for word in word_list]
+
+    def setup_letters(self):
+        for i in range(len(LETTERS)):
+            for _ in range(LETTER_SCALES[i]):
+                self.all_letters.append(LETTERS[i])
+
+    def create_board(self):
+        board = [["-" for _ in range(WIDTH)] for _ in range(HEIGHT)]
+        for i in range(HEIGHT):
+            for j in range(WIDTH):
+                letter = random.choice(self.all_letters)
+                board[i][j] = letter
+        return board
+
+    def get_words(self, board, word_list) -> List[str]:
+        valid_words = []
+        for word in word_list:
+            if self.in_board(board, word):
+                valid_words.append(word)
+        return valid_words
+
+    def get_neighbors(self, row, col):
+        neighbors = []
+        for y,x in DIRECTIONS:
+            next_row = row + y
+            next_col = col + x
+            if next_row < 0 or next_row >= HEIGHT or next_col < 0 or next_col >= WIDTH:
+                continue
+            neighbors.append((next_row, next_col))
+        return neighbors
+
+    def in_board(self, board: List[List[chr]], word: str) -> bool:
+        paths = []
+
+        for i in range(HEIGHT):
+            for j in range(WIDTH):
+                if board[i][j] == word[0]:
+                    paths.append({"0" : (i,j)})
+
+        for l in range(1, len(word)):
+            for i in range(HEIGHT):
+                for j in range(WIDTH):
+                    if board[i][j] != word[l]:
+                        continue
+                    neighbors = self.get_neighbors(i,j)
+                    to_add_paths = []
+                    for path in paths:
+                        if path[f"{l-1}"] in neighbors and (i,j) not in list(path.values()):
+                            new_path = path.copy()
+                            new_path.update({f"{l}" : (i,j)})
+                            to_add_paths.append(new_path)
+                    paths += to_add_paths
+            paths = [path for path in paths if len(path) == l + 1]
+            if len(paths) == 0:
+                return False
+        return True
+
+    @commands.command(aliases=["wfstart"])
+    async def wordfinderstart(self, ctx, *args):
+        member = ctx.author
+        guild = ctx.guild
+        channel = ctx.channel
+
+        # MULTIPLAYER CHECKS
+        if guild.id in self.guild_games:
+            await ctx.send(f"A Word Finder Match has already been started in **{guild.name}**")
+            return
+        if len(args) != 1:
+            await ctx.send("You must challenge another member of the server!")
+            return
+        member_ids = []
+        for m in guild.members:
+            member_ids.append(m.id)
+        target_id = int(args[0].replace("<@","").replace(">",""))
+        target_member = None
+        if target_id in member_ids:
+            target_member = guild.get_member(target_id)
+        if target_member == None:
+            return
+        for g in self.guild_games:
+            if self.guild_games[g]["p1data"]["id"] == member.id or self.guild_games[g]["p2data"]["id"] == member.id:
+                await ctx.send(f"You are already playing a Mordle Match in another server!")
+                return
+            if self.guild_games[g]["p1data"]["id"] == target_id or self.guild_games[g]["p2data"]["id"] == target_id:
+                await ctx.send(f"{target_member.display_name} is already playing a Mordle Match in another server!")
+                return
+        if target_member == member:
+            await ctx.send(f"You cannot challenge yourself to a Word Finder Match!")
+            return
+        if target_member.bot:
+            await ctx.send(f"You cannot challenge a Bot to a Word Finder Match!")
+            return
+        board = self.create_board()
+        board_string = ""
+        for i in range(HEIGHT):
+            for j in range(WIDTH):
+                board_string += f"{LETTER_EMOTE_PREFIX}{board[i][j].lower()}: "
+            if i < HEIGHT - 1:
+                board_string += "\n"
+        board_words = self.get_words(board, self.words)
+        self.guild_games[guild.id] = {"channel_id" : channel.id, "board" : board, "board_string" : board_string, "valid_words" : board_words, "started" : False, "accept_time_remaining" : self.accept_timeout_length, "game_time_remaining" : self.game_length}
+        self.guild_games[guild.id]["p1data"] = {"id" : member.id, "found_words" : [], "total_points" : 0, "can_guess" : False}
+        self.guild_games[guild.id]["p2data"] = {"id" : target_id, "found_words" : [], "total_points" : 0, "can_guess" : False}
+        await ctx.send(f"**{member.mention}** has challenged {target_member.mention} to a Word Finder match. Send 'a' to accept or 'd' to decline!")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        msg = message.content.upper()
+        channel = message.channel
+        member = message.author
+
+        if isinstance(channel, discord.channel.DMChannel):
+            guild_dict = None
+            player_dict = None
+            opponent_dict = None
+            guild_id = -1
+            for g in self.guild_games:
+                if self.guild_games[g]["p1data"]["id"] == member.id :
+                    guild_dict = self.guild_games[g]
+                    player_dict = self.guild_games[g]["p1data"]
+                    opponent_dict = self.guild_games[g]["p2data"]
+                    guild_id = g
+                    break
+                elif self.guild_games[g]["p2data"]["id"] == member.id:
+                    guild_dict = self.guild_games[g]
+                    player_dict = self.guild_games[g]["p2data"]
+                    opponent_dict = self.guild_games[g]["p1data"]
+                    guild_id = g
+                    break
+            if guild_dict == None or player_dict == None or opponent_dict == None:
+                return
+
+            if player_dict["can_guess"] == False:
+                return
+            if msg in player_dict["found_words"]:
+                return
+            board_embed = discord.Embed(title="")
+            board_embed.add_field(name="Board", value=guild_dict['board_string'])
+            await channel.send(embed=board_embed)
+            if msg not in guild_dict["valid_words"]:
+                return
+
+            player_dict["can_guess"] = False
+            await channel.send(f"+{len(msg)} POINTS!")
+            player_words = player_dict["found_words"]
+            player_words.append(msg)
+            player_dict["found_words"] = player_words
+            player_dict["total_points"] += len(msg)
+            player_dict["can_guess"] = True
+
+        elif isinstance(channel, discord.channel.TextChannel):
+            guild = message.guild
+            if guild.id not in self.guild_games:
+                return
+            guild_dict = self.guild_games[guild.id]
+            if guild_dict["started"] == False:
+                if member.id != guild_dict["p2data"]["id"]:
+                    return
+                if msg == "a" or msg == "A":
+                    await channel.send(f"{member.display_name} has accepted the match!")
+                    p1 = await self.bot.fetch_user(str(guild_dict["p1data"]["id"]))
+                    p2 = await self.bot.fetch_user(str(guild_dict["p2data"]["id"]))
+                    match_embed = discord.Embed(title=f"**Starting Word Finder match between {p1.name} and {p2.name}**\n")
+                    match_embed.add_field(name="Board", value=guild_dict['board_string'])
+                    await channel.send(embed=match_embed)
+                    guild_dict["started"] = True
+                    await self.start_match(guild.id)
+                elif msg == "d" or msg == "D":
+                    await channel.send(f"{member.display_name} has declined the match!")
+                    del self.guild_games[guild.id]
+    
+    async def start_match(self, guild_id):
+        if guild_id not in self.guild_games:
+            return
+        
+        guild_dict = self.guild_games[guild_id]
+
+        p1 = await self.bot.fetch_user(str(guild_dict["p1data"]["id"]))
+        p2 = await self.bot.fetch_user(str(guild_dict["p2data"]["id"]))
+
+        p1_embed = discord.Embed(title=f"**Starting Word Finder match against {p2.name}**\n")
+        p1_embed.add_field(name="Board", value=guild_dict['board_string'])
+        p2_embed = discord.Embed(title=f"**Starting Word Finder match against {p1.name}**\n")
+        p2_embed.add_field(name="Board", value=guild_dict['board_string'])
+        await p1.send(embed=p1_embed)
+        await p2.send(embed=p2_embed)
+        guild_dict["p1data"]["can_guess"] = True
+        guild_dict["p2data"]["can_guess"] = True
+
+    @tasks.loop(seconds=1.0)
+    async def game_loop(self):
+        if len(self.guild_games) > 0:
+            end_list = []
+            unaccept_list = []
+            for g in self.guild_games:
+                if self.guild_games[g]["started"] == False:
+                    self.guild_games[g]["accept_time_remaining"] -= 1
+                    if self.guild_games[g]["accept_time_remaining"] <= 0:
+                        unaccept_list.append(g)
+                    continue
+                self.guild_games[g]["game_time_remaining"] -= 1
+                if self.guild_games[g]["game_time_remaining"] <= 0:
+                    end_list.append(g)
+            for e in end_list:
+                channel = self.bot.get_channel(self.guild_games[e]["channel_id"])
+                p1 = await self.bot.fetch_user(str(self.guild_games[e]['p1data']["id"]))
+                p2 = await self.bot.fetch_user(str(self.guild_games[e]['p2data']["id"]))
+                p1_score = self.guild_games[e]['p1data']['total_points']
+                p1_words = self.guild_games[e]['p1data']['found_words']
+                p2_score = self.guild_games[e]['p2data']['total_points']
+                p2_words = self.guild_games[e]['p2data']['found_words']
+                win_text = "IT'S A DRAW"
+                if p1_score > p2_score:
+                    win_text = f"{p1.name} WINS!"
+                elif p1_score < p2_score:
+                    win_text = f"{p2.name} WINS!"
+                done_embed = discord.Embed(title=f"TIME'S UP", description=f"{p1.name} vs {p2.name} Word Finder Match Results!\n\n{win_text}")
+                done_embed.add_field(name=f"{p1.name}", value=f"Words Found: {len(p1_words)}\nTotal Points: {p1_score}")
+                done_embed.add_field(name=f"{p2.name}", value=f"Words Found: {len(p2_words)}\nTotal Points: {p2_score}")
+                await channel.send(embed=done_embed)
+                await p1.send(embed=done_embed)
+                await p2.send(embed=done_embed)
+                del self.guild_games[e]
+            for u in unaccept_list:
+                channel = self.bot.get_channel(self.guild_games[u]["channel_id"])
+                p = self.guild_games[u]["p2data"]["id"]
+                p_name = self.bot.get_guild(u).get_member(p).display_name
+                await channel.send(f"{p_name} did not accept in time. Ending match...")
+                del self.guild_games[u]
+
+async def setup(bot):
+    awaiit bot.add_cog(WordFinder(bot))
+    print(f'WordFinder Cog is being loaded')
+
+def teardown(bot):
+    
+    print(f'WordFinder Cog is being removed')
