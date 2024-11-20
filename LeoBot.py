@@ -13,6 +13,7 @@ DEFAULT_GUILD_DATA = {'name':'', 'hangman_data':{}, 'wordle_data':{}}
 dotenv.load_dotenv()
 TOKEN = os.getenv('TOKEN')
 prefix = os.getenv('PREFIX')
+DATA_PATH = os.getenv('DATA_PATH')
 intents = discord.Intents(messages=True, guilds=True, reactions=True, members=True, presences=True)
 intents.message_content = True
 bot = commands.Bot(command_prefix=prefix, intents=intents)
@@ -126,7 +127,7 @@ async def load_extensions():
 
 async def main():
     print(f"->Starting bot at {datetime.datetime.now().replace(microsecond=0)}")
-    data_path = "/media/pi/Seagate Portable Drive/leobot_data"
+    data_path = DATA_PATH
     bot.pics_path = "pics"
     bot.data_file = os.path.join(data_path, "data", "guilds.json")
     bot.guild_data = {}
