@@ -28,7 +28,8 @@ class Markov(commands.Cog):
             with open(self.chains_file, 'w', encoding='utf-8') as f:
                 json.dump(self.guild_chains, f, ensure_ascii=False, indent=4)
         else:
-            with open(self.chains_file, 'r') as f:
+            with open(self.chains_file, 'r', encoding='utf-8') as f:
+                print(self.chains_file)
                 self.guild_chains = json.load(f)
             for guild in self.bot.guilds:
                 if str(guild.id) not in self.guild_chains:
