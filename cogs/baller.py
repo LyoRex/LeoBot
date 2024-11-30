@@ -174,11 +174,11 @@ class Baller(commands.Cog):
                     if member_data_dict['fgas'] == 0:
                         out_string += "FG%: N/A\n"
                     else:
-                        out_string += f"FG%: {member_data_dict['fgms'] / member_data_dict['fgas']}\n"
+                        out_string += f"FG%: {100 * member_data_dict['fgms'] / member_data_dict['fgas']}%\n"
                     if member_data_dict['3pas'] == 0:
                         out_string += "3P%: N/A\n"
                     else:
-                        out_string += f"3P%: {member_data_dict['3pms'] / member_data_dict['3pas']}\n"
+                        out_string += f"3P%: {100 * member_data_dict['3pms'] / member_data_dict['3pas']}%\n"
                     out_string += f"3PA per Game: {member_data_dict['3pas'] / member_data_dict['games_played']}\n"
                     out_string += f"3PM per Game: {member_data_dict['3pms'] / member_data_dict['games_played']}\n"
                     out_string += f"And1s per Game: {member_data_dict['and1s'] / member_data_dict['games_played']}\n"
