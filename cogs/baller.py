@@ -139,6 +139,76 @@ class Baller(commands.Cog):
         await ctx.send(f"**{target_member.mention}**, you have been challenged by **{member.mention}** to a Baller 1v1.\nThe target score is **{target_score}**.\n Type 'a' to accept or 'd' to decline.")
         self.reset_game(guild.id, guild, channel, member, target_member, target_score)
 
+    @commands.command(aliases=["bstats"], help="Show your Baller 1v1 stats in this server", usage="&ballerstats")
+    @commands.guild_only()
+    async def ballerstats(self, ctx, *args):
+        member = ctx.author
+        guild = ctx.guild
+        channel = ctx.channel
+
+        target_member_id = str(member.id)
+        target_member = member
+        if len(args) == 1:
+            arg_id = int(args[0].replace("<@","").replace(">",""))
+            all_guild_member_ids = [m.id for m in guild.members]
+            if arg_id in all_guild_member_ids:
+                target_member_id = str(arg_id)
+                target_member = guild.get_member(arg_id)
+
+        with open(self.bot.data_file, 'r') as f:
+            all_guilds_data_dict = json.load(f)
+            guild_data = all_guilds_data_dict[str(guild.id)]['baller_data']
+            out_string = ""
+            found_member = False
+            for member_id in guild_data:
+                if member_id == target_member_id:
+                    member_data_dict = guild_data[member_id]
+
+                    out_string += "**__GAMES__**\n"
+                    out_string += f"Games Played: {member_data_dict['games_played']}\n"
+                    out_string += f"Games Won: {member_data_dict['wins']}\n"
+                    out_string += f"Games Lost: {member_data_dict['losses']}\n"
+                    out_string += f"Games Forfeited: {member_data_dict['forfeits']}\n"
+                    out_string += "\n**__AVERAGES__**\n"
+                    out_string += f"Points per Game: {member_data_dict['points'] / member_data_dict['games_played']}\n"
+                    if member_data_dict['fgas'] == 0:
+                        out_string += "FG%: N/A\n"
+                    else:
+                        out_string += f"FG%: {member_data_dict['fgms'] / member_data_dict['fgas']}\n"
+                    if member_data_dict['3pas'] == 0:
+                        out_string += "3P%: N/A\n"
+                    else:
+                        out_string += f"3P%: {member_data_dict['3pms'] / member_data_dict['3pas']}\n"
+                    out_string += f"3PA per Game: {member_data_dict['3pas'] / member_data_dict['games_played']}\n"
+                    out_string += f"3PM per Game: {member_data_dict['3pms'] / member_data_dict['games_played']}\n"
+                    out_string += f"And1s per Game: {member_data_dict['and1s'] / member_data_dict['games_played']}\n"
+                    out_string += f"Dunks per Game: {member_data_dict['dunks'] / member_data_dict['games_played']}\n"
+                    out_string += f"Layups per Game: {member_data_dict['layups'] / member_data_dict['games_played']}\n"
+                    out_string += f"Blocks per Game: {member_data_dict['blocks'] / member_data_dict['games_played']}\n"
+                    out_string += f"Steals per Game: {member_data_dict['steals'] / member_data_dict['games_played']}\n"
+                    out_string += f"Turnovers per Game: {member_data_dict['tos'] / member_data_dict['games_played']}\n"
+                    out_string += f"Fouls per Game: {member_data_dict['fouls'] / member_data_dict['games_played']}\n"
+                    out_string += "\n**__TOTALS__**\n"
+                    out_string += f"Total Points: {member_data_dict['points']}\n"
+                    out_string += f"Total FGM: {member_data_dict['fgms']}\n"
+                    out_string += f"Total FGA: {member_data_dict['fgas']}\n"
+                    out_string += f"Total 3PA: {member_data_dict['3pas']}\n"
+                    out_string += f"Total 3PM: {member_data_dict['3pms']}\n"
+                    out_string += f"Total And1s: {member_data_dict['and1s']}\n"
+                    out_string += f"Total Dunks: {member_data_dict['dunks']}\n"
+                    out_string += f"Total Layups: {member_data_dict['layups']}\n"
+                    out_string += f"Total Blocks: {member_data_dict['blocks']}\n"
+                    out_string += f"Total Steals: {member_data_dict['steals']}\n"
+                    out_string += f"Total TOs: {member_data_dict['tos']}\n"
+                    out_string += f"Total Fouls: {member_data_dict['fouls']}\n"
+                    found_member = True
+                    break
+            if found_member:
+                stats_embed = discord.Embed(title=f"Baller Stats for **{target_member.display_name}** in **{guild.name}**", description=out_string)
+            else:
+                stats_embed = discord.Embed(title=f"Baller Stats for **{target_member.display_name}** in **{guild.name}**", description="No Baller 1v1 stats exists for this user in this server")
+            await channel.send(embed=stats_embed)
+
     async def start_match(self, guild_id):
         if guild_id not in self.guild_games:
             return
