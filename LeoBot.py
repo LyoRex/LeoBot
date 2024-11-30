@@ -8,7 +8,7 @@ import dotenv
 import json
 import datetime
 
-DEFAULT_GUILD_DATA = {'name':'', 'hangman_data':{}, 'wordle_data':{}}
+DEFAULT_GUILD_DATA = {'name':'', 'hangman_data':{}, 'wordle_data':{}, 'baller_data': {}}
 
 dotenv.load_dotenv()
 TOKEN = os.getenv('TOKEN')
@@ -22,6 +22,7 @@ bot = commands.Bot(command_prefix=prefix, intents=intents)
 @commands.is_owner()
 async def on_ready():
     print('Bot is ready')
+    initiate_guild_data()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} commands(s)")
@@ -30,7 +31,6 @@ async def on_ready():
         
     await bot.change_presence(activity=discord.Game(name="Weeb Simulator"))
 
-    initiate_guild_data()
 
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py'):
@@ -57,8 +57,13 @@ def initiate_guild_data():
             bot.guild_data = json.load(f)
         for guild in bot.guilds:
             if str(guild.id) not in bot.guild_data:
-                bot.guild_data[guild.id] = DEFAULT_GUILD_DATA
-                bot.guild_data[guild.id]['name'] = guild.name
+                bot.guild_data[str(guild.id)] = DEFAULT_GUILD_DATA
+                bot.guild_data[str(guild.id)]['name'] = guild.name
+            # Add any missing keys to the guild's dictionary
+            for key in DEFAULT_GUILD_DATA.keys():
+                if key not in bot.guild_data[str(guild.id)].keys():
+                    if type(DEFAULT_GUILD_DATA[key]) == dict:
+                        bot.guild_data[str(guild.id)][key] = dict(DEFAULT_GUILD_DATA[key])
         with open(bot.data_file, 'w', encoding='utf-8') as f:
             json.dump(bot.guild_data, f, ensure_ascii=False, indent=4)
 
@@ -94,12 +99,12 @@ async def reload(ctx, module : str):
 @bot.command(hidden=True)
 @commands.is_owner()
 async def reloadall(ctx):
-    try:
-        for filename in os.listdir('./cogs'):
+    for filename in os.listdir('./cogs'):
+        try:
             if filename.endswith('.py'):
                 await bot.unload_extension(f'cogs.{filename[:-3]}')
-    except ExtensionNotLoaded:
-        await ctx.send(f'{module} not loaded')
+        except ExtensionNotLoaded:
+            await ctx.send(f'{filename[:-3]} not loaded')
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py'):
             await bot.load_extension(f'cogs.{filename[:-3]}')
