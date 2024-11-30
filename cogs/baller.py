@@ -18,8 +18,8 @@ import json
 class Baller(commands.Cog):
     def __init__(self, bot):
         self.bot: commands.Bot
-        self.accept_timeout_length = 5
-        self.game_timeout_length = 10
+        self.accept_timeout_length = 10
+        self.game_timeout_length = 30
 
         self.bot = bot
         self.guild_games = {}
