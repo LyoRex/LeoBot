@@ -1,3 +1,4 @@
 *.env
 personal_gifs
 __pycache__
+*.pyc
